@@ -13,7 +13,7 @@ public sealed class OrderLine
         Quantity = quantity;
         UnitPrice = unitPrice;
     }
-
+    // DEMO4-3 інваріанти рядка, фабрика internal
     internal static OrderLine Create(string productId, int quantity, decimal unitPrice)
     {
         if (string.IsNullOrWhiteSpace(productId))

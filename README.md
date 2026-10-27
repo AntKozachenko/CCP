@@ -65,3 +65,80 @@ Records з `Core/Dto` лишаються форматом даних (DTO), а �
 - `FromDto` відновлює сутність через ті самі методи, тому пошкоджені дані відхиляються
 - Ціна товару в каталозі більша за нуль (`Product.Create`)
 - Клієнт не може мати більше 3 чернеток одночасно (`OrderPlacement.StartOrder`)
+
+## Сервісний шар і сховища (лаб. 5)
+
+Доменна логіка не залежить від способу зберігання даних: сервіс працює з інтерфейсом сховища, а конкретна реалізація обирається в одному місці, у `Program.cs` (composition root). DI-контейнер (`Microsoft.Extensions.DependencyInjection`) навмисно не підключено: залежності передаються через конструктор вручну.
+
+| Роль | Тип | Розташування |
+| :--- | :--- | :--- |
+| Інтерфейс сховища | `ICatalogStore` | `Core/Abstractions` |
+| Реалізація в пам'яті | `InMemoryCatalogStore` | `Core/Storage` |
+| Реалізація у файлі | `FileCatalogStore` | `Core/Storage` |
+| Декоратор з кешем (додаткове) | `CachingCatalogStore` | `Core/Storage` |
+| Сервіс | `CatalogService` | `Core/Services` |
+| Демо-дані (16 товарів) | `SampleData` | `Core` |
+| Фабрика сховищ (додаткове) | `StoreFactory` | `Cli` |
+
+### Схема залежностей
+
+```
+Cli (Program.cs) → CatalogService → ICatalogStore ← InMemoryCatalogStore | FileCatalogStore | CachingCatalogStore
+```
+
+Конкретні класи сховищ створюються лише в `Program.cs` (і в `StoreFactory`, якщо використовувати фабрику). У `Core/Services` немає жодної згадки про `FileCatalogStore`, а в `Core` немає виводу в консоль.
+
+### Контракт `ICatalogStore`
+
+| Метод | Призначення |
+| :--- | :--- |
+| `List()` | усі товари; повертає `IReadOnlyList`, щоб зовнішній код не змінював сховище в обхід `Add`/`Update`/`Remove` |
+| `GetById(id)` | товар або `null`; відсутність запису це нормальний результат пошуку |
+| `Add(item)` | додає товар; дубль id дає `InvalidOperationException` |
+| `Update(item)` | замінює товар з тим самим id; якщо такого немає, `InvalidOperationException` |
+| `Remove(id)` | видаляє товар; повертає `true`, якщо було що видаляти |
+
+У контракті лише доменні операції. Деталі файлу (`Flush`, шлях) живуть тільки в `FileCatalogStore`.
+
+### Реалізації
+
+- `InMemoryCatalogStore`: словник у пам'яті, початкові дані передаються в конструктор (`seed`). Після завершення програми дані зникають.
+- `FileCatalogStore`: JSON-файл. Дані читаються один раз при першому зверненні й тримаються в кеші, після кожної зміни файл переписується. На диск потрапляють `ProductDto`, а не сутності: формат файлу не диктує форму домену, а `Product.FromDto` проганяє дані через інваріанти.
+- `CachingCatalogStore`: декоратор. Приймає будь-яке інше `ICatalogStore`, кешує читання (`List`, `GetById`), а будь-яка зміна скидає кеш.
+
+Унікальність id перевіряє сховище (це правило про набір записів), решту інваріантів перевіряє `Product.Create`.
+
+### Операції `CatalogService`
+
+| Операція | Опис |
+| :--- | :--- |
+| `Add(name, price)` | створює товар з новим id через `Product.Create` і додає в сховище |
+| `ChangePrice(id, newPrice)` | `Product` незмінний, тому створюється новий товар з тим самим id і замінює старий |
+| `Remove(id)` | видаляє товар; неіснуючий id дає `InvalidOperationException` |
+| `Find(id)` | товар або `null` |
+| `All()` | усі товари |
+| `Search(predicate)` | товари за умовою `Func<Product, bool>` (додаткове) |
+
+### Запуск
+
+Режим вибирається аргументом Cli:
+
+```
+dotnet run --project src/Cli                  # InMemoryCatalogStore, стартові дані з SampleData, після виходу зникають
+dotnet run --project src/Cli -- --file        # FileCatalogStore, дані накопичуються між запусками
+dotnet run --project src/Cli -- --file --cache  # те саме з декоратором CachingCatalogStore
+```
+
+Файл даних `catalog.json` створюється в підкаталозі `data` поруч зі збіркою (`AppContext.BaseDirectory`), тобто всередині `bin/`. Команда `dotnet clean` його видаляє. Кирилиця в файлі записана як `\uXXXX`: це штатне екранування `System.Text.Json`.
+
+Сценарій у `Program.cs`: додати товар, змінити ціну, показати список, знайти за id, пошук за умовою, видалити тимчасовий товар, а потім п'ять відмов (дубль id, неіснуючий id для `ChangePrice` і `Remove`, нульова ціна, порожня назва) з зрозумілими повідомленнями.
+
+### Додаткові завдання
+
+1. `CachingCatalogStore`: декоратор з тим самим контрактом. Вмикається прапорцем `--cache`, у кінці виводу показує кількість влучань і промахів кешу.
+2. `CatalogService.Search(Func<Product, bool>)`: пошук за довільною умовою. Метод у сервісі, а не в інтерфейсі, щоб контракт лишався мінімальним.
+3. `StoreFactory.Create(args)`: вибір сховища з аргументів винесено з `Program.cs`. Це частина composition root, а не відхід від нього: конкретні класи знає лише точка входу. Щоб скористатися фабрикою, у `Program.cs` розкоментований рядок з `Cli.StoreFactory.Create(args)` замінює тернарний блок.
+
+### Що зміниться, коли з'явиться база даних
+
+Додасться ще один клас, що реалізує `ICatalogStore` (наприклад, на Entity Framework Core). `CatalogService`, `Product` і DTO не зміняться, у `Program.cs` зміниться лише рядок створення сховища.

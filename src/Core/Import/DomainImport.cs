@@ -5,7 +5,7 @@ namespace Core.Import;
 
 public static class DomainImport
 {
-    // Та сама ідея «дані + помилки»: до помилок розбору додаються помилки інваріантів.
+    // DEMO4-6a додаткове імпорт -> сутності
     public static ImportResult<Product> ToProducts(ImportResult<ProductDto> import)
     {
         var products = new List<Product>();

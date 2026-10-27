@@ -1,79 +1,78 @@
-﻿using Core.Domain;
-using Core.Dto;
-using Core.Import;
+﻿using Core;
+using Core.Abstractions;
+using Core.Domain;
+using Core.Services;
+using Core.Storage;
 
-Console.WriteLine("=== Сценарій 1: успіх ===");
-Order order = Order.Create("O-001", "C-001");
-Console.WriteLine(order);
-order.AddLine("P-001", 2, 24999.00m);
-order.AddLine("P-002", 1, 449.50m);
-foreach (OrderLine l in order.Lines)
-    Console.WriteLine($"  {l}");
-order.Confirm();
-Console.WriteLine(order);
+// ===== Composition root: єдине місце з конкретними класами сховищ =====
+bool useFile = args.Contains("--file");
+string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "catalog.json");
 
-Console.WriteLine();
-Console.WriteLine("=== Сценарій 2: порушення інваріантів ===");
-Order draft = Order.Create("O-002", "C-001");
-Order cancelled = Order.Create("O-003", "C-001");
-cancelled.Cancel();
+IOrderStore store = useFile
+    ? new FileOrderStore(dataPath)
+    : new InMemoryOrderStore(SampleData.Products());
 
-TryDo("порожній клієнт", () => Order.Create("O-900", " "));
-TryDo("нульова кількість у рядку", () => draft.AddLine("P-003", 0, 100m));
-TryDo("від'ємна ціна", () => draft.AddLine("P-003", 1, -5m));
-TryDo("рядок у підтверджене замовлення", () => order.AddLine("P-003", 1, 100m));
-TryDo("підтвердження порожнього", () => draft.Confirm());
-TryDo("повторне підтвердження", () => order.Confirm());
-TryDo("підтвердження скасованого", () => cancelled.Confirm());
-TryDo("FromDto: підтверджене без рядків", () => Order.FromDto(new OrderDto("O-900", "C-001", "Confirmed", [])));
-TryDo("FromDto: невідомий статус", () => Order.FromDto(new OrderDto("O-900", "C-001", "Shipped", [])));
+if (args.Contains("--cache"))
+    store = new CachingOrderStore(store);   // декоратор (додаткове 1)
 
-Console.WriteLine();
-Console.WriteLine("Після всіх відмов:");
-Console.WriteLine($"  {order}");
-Console.WriteLine($"  {draft}");
+// Варіант із фабрикою (додаткове 3): розкоментувати рядок нижче й прибрати блок вище.
+//IOrderStore store = Cli.OrderFactory.Create(args);
 
-Console.WriteLine();
-Console.WriteLine("=== Мапінг ToDto / FromDto ===");
-Order restored = Order.FromDto(order.ToDto());
-Console.WriteLine($"  {restored}");
+var service = new OrderService(store);
 
-Console.WriteLine();
-Console.WriteLine("=== Додаткове 1: імпорт → сутності ===");
-string csvPath = Path.Combine("data", "sample.csv");
-if (File.Exists(csvPath))
+Console.WriteLine($"Сховище: {store.GetType().Name}");
+Console.WriteLine($"Товарів на старті: {service.All().Count}");
+
+// ===== Сценарій успіху: додати, змінити, показати, знайти =====
+Console.WriteLine("\n--- Додавання й зміна ціни ---");
+var created = service.Add("Кабель UTP cat6 (50 м)", 650.00m);
+Console.WriteLine($" додано: {created.Id} {created.Name} {created.Price:F2}");
+var changed = service.ChangePrice(created.Id, 599.00m);
+Console.WriteLine($" нова ціна: {changed.Id} {changed.Price:F2}");
+
+Console.WriteLine("\n--- Усі товари ---");
+foreach (var p in service.All())
+    Console.WriteLine($" {p.Id,-11} {p.Name,-26} {p.Price,10:F2}");
+
+Console.WriteLine("\n--- Пошук за id ---");
+Console.WriteLine(service.Find(created.Id) is { } found ? $" {found.Id} {found.Name}" : " не знайдено");
+Console.WriteLine(service.Find("P-NOPE") is null ? " P-NOPE: не знайдено (null, не виняток)" : " знайдено");
+
+// ===== Додаткове 2: пошук за предикатом =====
+Console.WriteLine("\n--- Товари дорожчі за 3000 ---");
+foreach (var p in service.Search(p => p.Price > 3000m))
+    Console.WriteLine($" {p.Id,-11} {p.Name,-26} {p.Price,10:F2}");
+
+// ===== Видалення: тимчасовий товар додаємо й одразу прибираємо =====
+Console.WriteLine("\n--- Видалення ---");
+var temp = service.Add("Тимчасовий товар", 1m);
+service.Remove(temp.Id);
+Console.WriteLine($" {temp.Id} видалено, пошук тепер: {(service.Find(temp.Id) is null ? "null" : "знайдено")}");
+
+// ===== Сценарій відмови: помилки з людськими повідомленнями =====
+Console.WriteLine("\n--- Відмови ---");
+TryDo("дубль id у сховищі", () => store.Add(Product.Create(created.Id, "Двійник", 10m)));
+TryDo("ChangePrice неіснуючого id", () => service.ChangePrice("P-NOPE", 10m));
+TryDo("Remove неіснуючого id", () => service.Remove("P-NOPE"));
+TryDo("ціна нуль (інваріант Product)", () => service.Add("Безкоштовний", 0m));
+TryDo("порожня назва (інваріант Product)", () => service.Add("  ", 10m));
+
+// Кеш видно лише в режимі --cache
+if (store is CachingOrderStore cache)
 {
-    ImportResult<ProductDto> csv = ProductCsvImporter.Load(csvPath);
-    var withZeroPrice = new ImportResult<ProductDto>(
-        [.. csv.Items, new ProductDto("P-999", "Безкоштовний", 0m)], csv.Errors);
-
-    ImportResult<Product> products = DomainImport.ToProducts(withZeroPrice);
-    Console.WriteLine($"Сутностей: {products.Items.Count}, відхилено: {products.Errors.Count}");
-    foreach (string e in products.Errors)
-        Console.WriteLine($"  ! {e}");
+    service.All(); service.All(); service.Find(created.Id); service.Find(created.Id);
+    Console.WriteLine($"\nКеш: влучань {cache.Hits}, промахів {cache.Misses}");
 }
-else
-{
-    Console.WriteLine($"  пропущено: не знайдено {Path.GetFullPath(csvPath)}");
-}
-
-Console.WriteLine();
-Console.WriteLine("=== Додаткове 2: ліміт чернеток клієнта ===");
-var history = new List<Order>();
-for (int i = 1; i <= OrderPlacement.MaxOpenDrafts; i++)
-    history.Add(OrderPlacement.StartOrder($"D-{i}", "C-009", history));
-Console.WriteLine($"  створено чернеток: {history.Count}");
-TryDo("четверта чернетка", () => OrderPlacement.StartOrder("D-4", "C-009", history));
 
 static void TryDo(string title, Action action)
 {
     try
     {
         action();
-        Console.WriteLine($"  {title}: виняток НЕ спрацював — інваріант відсутній!");
+        Console.WriteLine($" [{title}] неочікувано пройшло");
     }
-    catch (Exception ex)
+    catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
     {
-        Console.WriteLine($"  {title}: {ex.GetType().Name} — {ex.Message}");
+        Console.WriteLine($" [{title}] {ex.GetType().Name}: {ex.Message.ReplaceLineEndings(" ")}");
     }
 }

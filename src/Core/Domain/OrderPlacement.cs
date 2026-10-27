@@ -3,7 +3,7 @@ namespace Core.Domain;
 public static class OrderPlacement
 {
     public const int MaxOpenDrafts = 3;
-
+    // DEMO4 додаткове правило на дві сутності
     public static Order StartOrder(string id, string customerId, IEnumerable<Order> existing)
     {
         Order order = Order.Create(id, customerId); // спершу перевіряємо й нормалізуємо вхід

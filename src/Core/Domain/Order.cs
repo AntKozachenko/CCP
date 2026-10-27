@@ -4,6 +4,7 @@ namespace Core.Domain;
 
 public sealed class Order
 {
+    // DEMO4-1 приватне поле, get без set, приватний конструктор
     private readonly List<OrderLine> _lines = [];
 
     public string Id { get; }
@@ -27,7 +28,7 @@ public sealed class Order
 
         return new Order(id.Trim(), customerId.Trim());
     }
-
+    // DEMO4-4 спершу перевірки, потім зміна стану
     public void AddLine(string productId, int quantity, decimal unitPrice)
     {
         if (Status != OrderStatus.Draft)
@@ -47,7 +48,7 @@ public sealed class Order
 
     public void Cancel() => MoveTo(OrderStatus.Cancelled);
 
-    // Єдине місце, де змінюється Status (тиждень 6: тут же з'явиться подія).
+    // DEMO4 додаткове enum-статуси і дозволені переходи
     private void MoveTo(OrderStatus next)
     {
         bool allowed = (Status, next) switch
@@ -64,7 +65,7 @@ public sealed class Order
 
         Status = next;
     }
-
+    // DEMO4-5 мапінг DTO <-> сутність
     public OrderDto ToDto() => new(Id, CustomerId, Status.ToString(),
         _lines.Select(l => new OrderLineDto(Id, l.ProductId, l.Quantity, l.UnitPrice)).ToList());
 
