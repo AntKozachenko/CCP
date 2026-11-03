@@ -142,3 +142,62 @@ dotnet run --project src/Cli -- --file --cache  # те саме з декора�
 ### Що зміниться, коли з'явиться база даних
 
 Додасться ще один клас, що реалізує `ICatalogStore` (наприклад, на Entity Framework Core). `CatalogService`, `Product` і DTO не зміняться, у `Program.cs` зміниться лише рядок створення сховища.
+
+## Доменні події, делегати, лямбди (лаб. 6)
+
+Core повідомляє, що сталося, а що з цим робити, вирішує зовнішній код. У `Core` немає ні `Console`, ні роботи з файлом журналу.
+
+### Які зміни вважаються подіями
+
+| Вид (`CatalogChangeKind`) | Коли піднімається | Дані в `CatalogChangedEventArgs` |
+| :--- | :--- | :--- |
+| `Added` | після `OrderService.Add` | `Id`, `NewPrice` |
+| `PriceChanged` | після `OrderService.ChangePrice` | `Id`, `OldPrice`, `NewPrice` |
+| `Removed` | після `OrderService.Remove` | `Id`, `OldPrice` |
+
+Подія піднімається **лише після успішної зміни**: якщо `Product.Create` або сховище кинули виняток, повідомлення немає. Усі події мають `At` (момент створення аргументів).
+
+### Склад
+
+| Що | Де |
+| :--- | :--- |
+| `CatalogChangeKind`, `CatalogChangedEventArgs` | `Core/Events` |
+| `event EventHandler<CatalogChangedEventArgs>? Changed`, `OnChanged` | `Core/Services/OrderService.cs` |
+| `INotificationSink` (додаткове 1) | `Core/Abstractions` |
+| `ConsoleSink`, `FileSink`, `ChangeFormatter`, `RepoPaths` | `Cli` |
+| `ProductCsvImporter.Load(path, Action<string>? onSkipped)` (додаткове 2) | `Core/Import` |
+
+### Підписники
+
+Зараз: `OnCatalogChanged` (локальна функція в `Program.cs`: консоль + `logs/app.log`) і лямбда-лічильник `(_, _) => changes++` (замикання над `changes`). Обробники викликаються по черзі в порядку підписки. На тижні 10 підписником стане логер Api, на тижні 12 компонент Blazor, який оновлює таблицю.
+
+### Де використано Func / Action
+
+- `OrderService.Search(Func<Product, bool>)`: потрібна відповідь, тому делегат, а не подія.
+- `ProductCsvImporter.Load(path, Action<string>? onSkipped)`: викликач сам вирішує, що робити з повідомленням про пропущений рядок.
+
+### Подія чи INotificationSink (додаткове 1)
+
+| | `event` | `INotificationSink` |
+| :--- | :--- | :--- |
+| Хто підключає | будь-хто після створення сервісу (`+=` / `-=`) | composition root, один раз у конструкторі |
+| Відписка під час роботи | є (`-=`) | немає (список фіксований) |
+| Контракт | сигнатура делегата | інтерфейс, який зручно підмінити в тесті |
+| Наслідок | забутий `-=` тримає підписника в пам'яті | приймач живе стільки ж, скільки сервіс |
+
+### Інваріанти подій
+
+1. Кожна успішна операція дає рівно одну подію.
+2. Операція, що впала на інваріанті, подій не дає (у `Program.cs` це перевіряється лічильником: «Подій за час відмов: 0»).
+3. Після `-=` обробник мовчить, але дані змінюються.
+4. Подія оголошена як `event`, а не як публічне поле делегата.
+5. Помилка у підписнику ламає бізнес-операцію (необроблений виняток зупиняє наступних підписників), тому ризиковану роботу в обробнику слід обгортати в `try/catch`.
+
+### Запуск
+
+```
+dotnet run --project src/Cli
+dotnet run --project src/Cli -- --file --cache
+```
+
+`logs/app.log` і `logs/sinks.log` створюються кодом (`Directory.CreateDirectory`) у корені репозиторію й перезаписуються на кожному запуску демо.
