@@ -201,3 +201,79 @@ dotnet run --project src/Cli -- --file --cache
 ```
 
 `logs/app.log` і `logs/sinks.log` створюються кодом (`Directory.CreateDirectory`) у корені репозиторію й перезаписуються на кожному запуску демо.
+
+## Звіти через LINQ (лаб. 7)
+
+Усі запити живуть у `Core/Reports/ReportService.cs`. Вони приймають `IEnumerable<Order>` (а не сховище) і повертають `IReadOnlyList<DTO>`. `Program.cs` не містить жодного `Where`/`GroupBy`: лише виклики `ReportService` і вивід через `ReportPrinter`. Лише LINQ to Objects, без PLINQ і запитів до БД.
+
+Правило звітів: «клієнт», «чек» і «товар» рахуються за **підтвердженими** замовленнями (`Confirmed`). Чернетка ще не продаж, скасоване не продаж. Правило записане один раз у приватному `Confirmed(...)`.
+
+### Перелік запитів
+
+| Метод | Питання, на яке відповідає | Оператори |
+| :--- | :--- | :--- |
+| `ExpensiveOrders(source, threshold)` | Які замовлення дорожчі за поріг? | `Where`, `OrderByDescending`, `ThenBy`, `Select` |
+| `TopCustomers(source, n)` | Які n клієнтів принесли найбільше? | `Where`, `GroupBy`, `Select`, `OrderByDescending`, `ThenBy`, `Take` |
+| `ByStatus(source)` | Як замовлення розподілені за статусом? | `GroupBy`, `Select`, `OrderByDescending`, `ThenBy` |
+| `Totals(source)` | Який середній чек і найбільше замовлення? | `Where`, `Select`, `Sum`, `Average`, `Max` |
+| `TopProducts(orders, catalog, n)` (дод.) | Які товари дали найбільший виторг? | `SelectMany`, `Join`, `GroupBy`, власний `TopBy` |
+| `UnsoldProducts(orders, catalog)` (дод.) | Які товари ніхто не купив? | `GroupJoin`, `Where`, `OrderBy` |
+| `TopOrders(source, n)` (дод.) | Які n найбільших підтверджених замовлень? | `Where`, `Select`, власний `TopBy` |
+| `ByStatusQuerySyntax(source)` (дод.) | Те саме, що `ByStatus` | `from … group … into … let … orderby … select` |
+
+### Фрагмент GroupBy з проєкцією
+
+```csharp
+Confirmed(source)
+    .GroupBy(o => o.CustomerId, StringComparer.Ordinal)                      // g.Key: id клієнта, g: його замовлення
+    .Select(g => new CustomerSummary(g.Key, g.Count(), g.Sum(o => o.Total))) // g.Count(): скільки замовлень у групі
+    .OrderByDescending(c => c.TotalAmount).ThenBy(c => c.CustomerId, StringComparer.Ordinal)
+    .Take(n)
+    .ToList();
+```
+
+`Select` отримує групу, а не `Order`: `g.Key` це значення ключа групи, `g.Count()` і `g.Sum(...)` рахують лише в межах цієї групи. Після `Select` кожен елемент уже `CustomerSummary`, тому наступне сортування працює з готовими підсумками.
+
+### Підкоманди Cli
+
+```
+dotnet run --project src/Cli -- report-top        (за замовчуванням)
+dotnet run --project src/Cli -- report-big
+dotnet run --project src/Cli -- report-groups
+dotnet run --project src/Cli -- report-sum
+dotnet run --project src/Cli -- report-products | report-unsold | report-orders
+dotnet run --project src/Cli -- report-groups-q   (синтаксис запитів + перевірка збігу)
+dotnet run --project src/Cli -- report-defer      (демо відкладеного виконання)
+dotnet run -c Release --project src/Cli -- report-bench   (Stopwatch, 100 000 замовлень)
+dotnet run --project src/Cli -- events            (демо лаб. 6)
+```
+
+Прапорці: `--file`, `--cache` (сховище, лаб. 5), `--empty` (порожнє джерело), `--shuffle` (інший порядок у джерелі). Прапорець не вважається назвою звіту: команда береться як перший аргумент без `--`.
+
+### Коли виконується запит і чому два Count() дали різні числа
+
+Запит `source.Where(o => o.Total > threshold)` лише **описує** вибірку: у момент оголошення жодне замовлення не перевірено. Виконання починається при кожному `Count()` (і при `foreach`/`ToList()`), причому щоразу заново проходить поточний вміст `source`. Тому перший `Count()` дав 4, а після `source.Add(...)` другий `Count()` того самого запиту дав 5: джерело встигло змінитись між двома виконаннями. `ToList()` фіксує результат: після `source.Clear()` у знімку лишилось 5, а сам запит дав 0. Лічильник предиката в замиканні підтверджує: два `Count()` викликали предикат 36 разів (18 × 2), а після одного `ToList()` читання `list.Count` предикат не викликає взагалі (18 разів загалом).
+
+### Відповіді на типові питання
+
+- **Відкладені**: `Where`, `Select`, `OrderBy`, `GroupBy`, `Join`, `Take` (запит лише будується). **Негайні**: `ToList`, `ToArray`, `Count()`, `Sum`, `Average`, `Max`, `First`, `foreach`.
+- **Потокові** (`Where`, `Select`, `Take`) передають елементи по одному. **Буферизувальні** (`OrderBy`, `GroupBy`, `Join` для внутрішньої послідовності, `GroupJoin`) мусять спершу прочитати все й тримати в пам'яті. Тому `Where` ставимо перед `OrderBy`: сортуємо лише відібране.
+- **Порожня послідовність**: `Sum` і `Count()` дають 0, а `Average`/`Max` для типів без `null` кидають `InvalidOperationException`. У `Totals` порожнечу перевіряємо до виклику (`Count == 0`) і повертаємо нулі.
+- **Гроші** рахуємо в `decimal`, тому і `Average` у `Totals` це `decimal`, а не `double`.
+
+### Додаткові завдання
+
+1. **Join / GroupJoin.** `TopProducts`: `Join` рядків замовлень із каталогом (потрібна назва товару, її в рядку немає). `UnsoldProducts`: `GroupJoin` лишає товар у результаті, навіть якщо відповідних рядків немає, тому знаходить товари без продажів (`P-006`, `P-016`).
+2. **Власний метод-розширення** `TopBy<T, TKey>(key, tieBreaker, n)` у `EnumerableExtensions`. Другий ключ обов'язковий параметр, тож забути його неможливо. Використано у двох звітах: `TopProducts` і `TopOrders`. Метод навмисно не iterator (без `yield`), щоб перевірка аргументів спрацьовувала одразу. `TopCustomers` залишено з явним `OrderByDescending/ThenBy`, щоб патерн було видно без виклику допоміжного методу.
+3. **Синтаксис запитів.** `ByStatusQuerySyntax` дає той самий результат (`report-groups-q` перевіряє `SequenceEqual`). Порівняння читабельності: запис `from … group … into g … let total = … orderby … select` зручний, коли в центрі групування і треба зберегти проміжне значення (`let`): суму групи не рахуємо двічі. У методному записі для цього потрібен проміжний `Select` у кортеж. Мінуси синтаксису запитів: у `group by` не можна передати `StringComparer`, а `Take`, `First`, `Join` з компаратором все одно потребують методного виклику, тож ланцюжок «Where → ThenBy → Take» читається краще саме методами.
+4. **Stopwatch на 100 000 замовлень** (`report-bench`, медіана з 9 прогонів, Release, розігрів і `GC.Collect` перед кожним виміром). Приклад результатів на моїй машині (ваші цифри будуть іншими, перезапустіть і підставте свої):
+
+   | Варіант | Час, мс |
+   | :--- | ---: |
+   | Топ-5 клієнтів: без проміжного `ToList` | 31–39 |
+   | Топ-5 клієнтів: `ToList` після `Where` | 32–37 |
+   | Топ-5 клієнтів: `ToList` після кожного кроку | 37–38 |
+   | Дорожчі за 5000: запит двічі (`Count()` + `ToList()`) | 45–60 |
+   | Дорожчі за 5000: `ToList` один раз | 24–32 |
+
+   Висновок: `ToList` посередині ланцюжка швидкості не додає (різниця в межах шуму), бо дані й так проходять усі кроки один раз, а проміжні списки лише виділяють пам'ять. Матеріалізація потрібна, коли результат використовується **кілька разів**: подвійне перебирання запиту стабільно в 1,5–2 рази повільніше, бо `Total` (сума рядків) обчислюється двічі для кожного замовлення.

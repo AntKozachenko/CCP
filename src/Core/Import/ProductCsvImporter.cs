@@ -7,7 +7,10 @@ public static class ProductCsvImporter
 {
     private const char Separator = ';';
 
-public static ImportResult<ProductDto> Load(string path, Action<string>? onSkipped = null)
+    // Додаткове 2 (лаб. 6): onSkipped це Action<string>. Імпортер викликає його одразу для кожного
+    // пропущеного рядка, а що з повідомленням робити (друкувати, рахувати, писати в лог), вирішує викликач.
+    // Core при цьому не знає про Console. Без аргументу поведінка та сама, що в лаб. 3.
+    public static ImportResult<ProductDto> Load(string path, Action<string>? onSkipped = null)
     {
         var items = new List<ProductDto>();
         var errors = new List<string>();
@@ -30,10 +33,10 @@ public static ImportResult<ProductDto> Load(string path, Action<string>? onSkipp
                     items.Add(ok.Value);
                     break;
                 case ParseFailed failed:
-                  string message = $"рядок {number}: {failed.Reason}";
-                  errors.Add(message);
-                  onSkipped?.Invoke(message);
-                  break;
+                    string message = $"рядок {number}: {failed.Reason}";
+                    errors.Add(message);
+                    onSkipped?.Invoke(message);
+                    break;
             }
         }
 
