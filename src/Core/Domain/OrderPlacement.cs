@@ -10,7 +10,7 @@ public static class OrderPlacement
 
         int drafts = existing.Count(o => o.CustomerId == order.CustomerId && o.Status == OrderStatus.Draft);
         if (drafts >= MaxOpenDrafts)
-            throw new InvalidOperationException(
+            throw new DomainException(
                 $"Клієнт {order.CustomerId} уже має {drafts} незавершених замовлень (ліміт {MaxOpenDrafts})");
 
         return order;

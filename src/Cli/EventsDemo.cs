@@ -132,7 +132,7 @@ public static class EventsDemo
                 action();
                 Console.WriteLine($" [{title}] неочікувано пройшло");
             }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or DomainException)
             {
                 Console.WriteLine($" [{title}] {ex.GetType().Name}: {ex.Message.ReplaceLineEndings(" ")}");
             }

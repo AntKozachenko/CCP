@@ -65,6 +65,83 @@ public sealed class OrderService(IOrderStore store, IEnumerable<INotificationSin
         return _store.List().Where(predicate).ToList();
     }
 
+    // ===== Лаб. 8: асинхронний імпорт =====
+
+    // Імпортер приходить параметром (ручний DI), токен іде далі в LoadAsync і перевіряється в циклі.
+    // Подія піднімається для кожного ДОДАНОГО запису. Імпорт ідемпотентний: уже наявні id пропускаються.
+    // Скасування не відкочує вже додані записи: вони лишаються в сховищі разом із подіями.
+    // progress (додаткове 3) отримує відсотки 0..100 лише тоді, коли відсоток змінився.
+    // Сховище лишається синхронним: працює в пам'яті, а файлове сховище тут не є вузьким місцем.
+    public async Task<int> ImportAsync(ICatalogImporter importer, string path,
+        CancellationToken ct = default, IProgress<int>? progress = null)
+    {
+        ArgumentNullException.ThrowIfNull(importer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ct.ThrowIfCancellationRequested();
+
+        var items = await importer.LoadAsync(path, ct);
+
+        var added = 0;
+        var lastPercent = -1;
+        for (var i = 0; i < items.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var item = items[i];
+            if (_store.GetById(item.Id) is null)
+            {
+                _store.Add(item);
+                OnChanged(item.Id, CatalogChangeKind.Added, null, item.Price);
+                added++;
+            }
+
+            var percent = (i + 1) * 100 / items.Count;
+            if (percent != lastPercent)
+            {
+                lastPercent = percent;
+                progress?.Report(percent);
+            }
+        }
+        return added;
+    }
+
+    // Додаткове 2: зв'язані токени. Скасувати може і користувач (ct), і таймер (timeoutCts).
+    // Таймаут відрізняємо від скасування користувачем: токен користувача не скасований, а таймерний скасований.
+    public async Task<int> ImportWithTimeoutAsync(ICatalogImporter importer, string path, TimeSpan timeout,
+        CancellationToken ct = default, IProgress<int>? progress = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        try
+        {
+            return await ImportAsync(importer, path, linked.Token, progress);
+        }
+        catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Імпорт не вкластився в {timeout.TotalMilliseconds:F0} мс.", ex);
+        }
+    }
+
+    // Додаткове 1: потоковий імпорт через await foreach. Файл у пам'ять не читається цілком.
+    // Не атомарний: записи до першого поганого вже додані, а сам поганий дає DomainException з номером.
+    public async Task<int> ImportStreamAsync(ICatalogImporter importer, string path, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(importer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var added = 0;
+        await foreach (var item in importer.StreamAsync(path, ct).WithCancellation(ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_store.GetById(item.Id) is not null) continue;
+            _store.Add(item);
+            OnChanged(item.Id, CatalogChangeKind.Added, null, item.Price);
+            added++;
+        }
+        return added;
+    }
+
     private Product GetOrThrow(string id) =>
         _store.GetById(id) ?? throw new InvalidOperationException($"Немає товару з id={id}.");
 }

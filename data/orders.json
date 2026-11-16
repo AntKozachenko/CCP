@@ -1,0 +1,47 @@
+[
+  {
+    "id": "O-101",
+    "customerId": "C-101",
+    "status": "Confirmed",
+    "lines": [
+      {
+        "orderId": "O-101",
+        "productId": "P-101",
+        "quantity": 1,
+        "unitPrice": 6499
+      },
+      {
+        "orderId": "O-101",
+        "productId": "P-106",
+        "quantity": 2,
+        "unitPrice": 199
+      }
+    ]
+  },
+  {
+    "id": "O-102",
+    "customerId": "C-102",
+    "status": "Draft",
+    "lines": [
+      {
+        "orderId": "O-102",
+        "productId": "P-110",
+        "quantity": 3,
+        "unitPrice": 399
+      }
+    ]
+  },
+  {
+    "id": "O-103",
+    "customerId": "C-101",
+    "status": "Confirmed",
+    "lines": [
+      {
+        "orderId": "O-103",
+        "productId": "P-115",
+        "quantity": 1,
+        "unitPrice": 1499
+      }
+    ]
+  }
+]

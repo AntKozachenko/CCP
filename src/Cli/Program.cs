@@ -69,10 +69,19 @@ switch (command)
         EventsDemo.Run(store, service);
         break;
 
+    // ----- лабораторна 8 -----
+    case "import":            // async-імпорт товарів: [шлях] --stream --timeout=мс --slow=мс --progress
+        Environment.ExitCode = await ImportCommand.ProductsAsync(args, service);
+        break;
+
+    case "import-orders":     // async-імпорт замовлень з рядками: [шлях]
+        Environment.ExitCode = await ImportCommand.OrdersAsync(args);
+        break;
+
     default:
         Console.WriteLine("report-top | report-big | report-groups | report-sum");
         Console.WriteLine("report-products | report-unsold | report-orders | report-groups-q | report-defer | report-bench");
-        Console.WriteLine("events");
-        Console.WriteLine("прапорці: --file --cache --empty --shuffle");
+        Console.WriteLine("events | import | import-orders");
+        Console.WriteLine("прапорці: --file --cache --empty --shuffle; import: --stream --timeout=мс --slow=мс --progress");
         break;
 }

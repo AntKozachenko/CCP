@@ -32,7 +32,7 @@ public sealed class Order
     public void AddLine(string productId, int quantity, decimal unitPrice)
     {
         if (Status != OrderStatus.Draft)
-            throw new InvalidOperationException(
+            throw new DomainException(
                 $"Замовлення {Id} має статус {Status}: рядки додавати не можна");
 
         _lines.Add(OrderLine.Create(productId, quantity, unitPrice)); // Create кидає ДО Add
@@ -40,8 +40,10 @@ public sealed class Order
 
     public void Confirm()
     {
+        if (Status == OrderStatus.Confirmed)
+            throw new DomainException($"Замовлення {Id} вже підтверджено");
         if (Status == OrderStatus.Draft && _lines.Count == 0)
-            throw new InvalidOperationException($"Замовлення {Id} порожнє: підтвердити неможливо");
+            throw new DomainException($"Замовлення {Id} порожнє: підтвердити неможливо");
 
         MoveTo(OrderStatus.Confirmed);
     }
@@ -60,7 +62,7 @@ public sealed class Order
         };
 
         if (!allowed)
-            throw new InvalidOperationException(
+            throw new DomainException(
                 $"Замовлення {Id}: перехід {Status} → {next} неможливий");
 
         Status = next;
