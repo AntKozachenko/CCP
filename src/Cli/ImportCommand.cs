@@ -9,9 +9,9 @@ namespace Cli;
 // Коди завершення: 0 успіх, 1 помилка даних або файлу, 2 скасовано чи вичерпано таймаут.
 public static class ImportCommand
 {
-    public static Task<int> ProductsAsync(string[] args, OrderService service)
+    public static Task<int> ProductsAsync(string[] args, OrderService service, AppSettings settings)
     {
-        string path = PathArg(args, "products.json");
+        string path = PathArg(args, settings, "products.json");
         int? timeoutMs = IntOption(args, "--timeout");
         int slowMs = IntOption(args, "--slow") ?? 0;
         bool stream = args.Contains("--stream");
@@ -38,9 +38,9 @@ public static class ImportCommand
         });
     }
 
-    public static Task<int> OrdersAsync(string[] args)
+    public static Task<int> OrdersAsync(string[] args, AppSettings settings)
     {
-        string path = PathArg(args, "orders.json");
+        string path = PathArg(args, settings, "orders.json");
 
         return GuardedAsync(path, null, async ct =>
         {
@@ -73,9 +73,9 @@ public static class ImportCommand
         }
     }
 
-    // Другий позиційний аргумент (перший це команда); за замовчуванням файл з data/.
-    private static string PathArg(string[] args, string defaultFile) =>
-        args.Where(a => !a.StartsWith("--")).Skip(1).FirstOrDefault() ?? RepoPaths.Combine("data", defaultFile);
+    // Другий позиційний аргумент (перший це команда); за замовчуванням демо-файл поруч зі збіркою (<вихід>/data).
+    private static string PathArg(string[] args, AppSettings settings, string defaultFile) =>
+        args.Where(a => !a.StartsWith("--")).Skip(1).FirstOrDefault() ?? Path.Combine(settings.SamplesDir, defaultFile);
 
     private static int? IntOption(string[] args, string name)
     {

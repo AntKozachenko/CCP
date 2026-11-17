@@ -8,10 +8,10 @@ namespace Cli;
 
 public static class StoreFactory
 {
-    public static IOrderStore Create(string[] args)
+    public static IOrderStore Create(string[] args, AppSettings settings)
     {
         IOrderStore store = args.Contains("--file")
-            ? new FileOrderStore(RepoPaths.Combine("data", "catalog.json"))
+            ? new FileOrderStore(settings.DataFile)   // шлях із конфігурації
             : new InMemoryOrderStore(SampleData.Products());
 
         return args.Contains("--cache") ? new CachingOrderStore(store) : store;

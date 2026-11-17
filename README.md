@@ -108,3 +108,71 @@ dotnet test --collect:"XPlat Code Coverage"
 ```
 
 Тести працюють із `InMemoryOrderStore` і підставними імпортерами. Диск використовують лише тести `JsonCatalogImporter` / `JsonOrderImporter`: тимчасовий файл у `Path.GetTempPath()`, що видаляється в `Dispose` (`TempFile`). Каталог `data/` тести не читають.
+
+## Шляхи, JSON, конфігурація, secrets (лаб. 9)
+
+Шляхи будуються через `Path.Combine` (роздільник підставляє ОС; конкатенація з `"\\"` ламається на Linux/macOS). Абсолютних літералів у `src` немає. Відносні шляхи рахуються від `AppContext.BaseDirectory` (а не `Environment.CurrentDirectory`), тому запуск з кореня solution і з `src/Cli` дає той самий файл.
+
+### Порядок джерел (пізніше перекриває раніше)
+
+`appsettings.json` → `appsettings.{Environment}.json` → user-secrets → змінні `CROSSAPP_*` → `--Ключ:Підключ=значення`. Додатково проста змінна `CROSSAPP_DATA_PATH` перекриває `Storage:DataPath`.
+
+### Профілі
+
+Профіль обирається змінною `CROSSAPP_ENVIRONMENT` (за замовчуванням `Development`).
+
+| Профіль | Журнал | Дані |
+| :--- | :--- | :--- |
+| Development | `Debug` | `<вихід збірки>/data` |
+| Production | `Warning` | `Environment.SpecialFolder.LocalApplicationData/CrossApp/data` (`Storage:Root=LocalAppData`) |
+
+### Таблиця ключів
+
+| Ключ | За замовчуванням | Змінна середовища |
+| :--- | :--- | :--- |
+| `Storage:DataPath` | `data` | `CROSSAPP_Storage__DataPath` або `CROSSAPP_DATA_PATH` |
+| `Storage:FileName` | `catalog.json` | `CROSSAPP_Storage__FileName` |
+| `Storage:LogPath` | `logs` | `CROSSAPP_Storage__LogPath` |
+| `Storage:Root` | `AppBase` (`LocalAppData` у Production) | `CROSSAPP_Storage__Root` |
+| `Logging:MinimumLevel` | `Information` | `CROSSAPP_Logging__MinimumLevel` |
+| `Orders:Currency` | `UAH` | `CROSSAPP_Orders__Currency` |
+| `EnvironmentName` | з профілю | `CROSSAPP_EnvironmentName` |
+| `Integration:ApiKey` | лише user-secrets / env | `CROSSAPP_Integration__ApiKey` |
+
+### Команди
+
+```
+dotnet run --project src/Cli -- config                 # шляхи й наявність секрету
+dotnet run --project src/Cli -- export                 # уся колекція → <DataPath>/catalog.json (атомарно)
+dotnet run --project src/Cli -- export my.json         # у вказаний файл
+dotnet run --project src/Cli -- import my.json         # імпорт назад
+dotnet run --project src/Cli -- config --Storage:DataPath=tmp
+```
+
+### Приклади змінних
+
+```powershell
+$env:CROSSAPP_DATA_PATH = "C:\Users\st\data"
+$env:CROSSAPP_Storage__FileName = "items.json"
+$env:CROSSAPP_Integration__ApiKey = "from-env"
+$env:CROSSAPP_ENVIRONMENT = "Production"
+```
+
+```bash
+CROSSAPP_DATA_PATH=/tmp/data dotnet run --project src/Cli -- export
+CROSSAPP_Integration__ApiKey=from-env dotnet run --project src/Cli -- config
+```
+
+### Secret
+
+```
+dotnet user-secrets init --project src/Cli      # дописує UserSecretsId у Cli.csproj (GUID комітиться, ключ ні)
+dotnet user-secrets set "Integration:ApiKey" "local-dev-key" --project src/Cli
+dotnet user-secrets list --project src/Cli
+```
+
+Файл лежить поза репозиторієм: Windows `%APPDATA%\Microsoft\UserSecrets\<UserSecretsId>\secrets.json`, Linux/macOS `~/.microsoft/usersecrets/<UserSecretsId>/secrets.json`. Це лише для розробки (відкритий текст, профіль користувача); у продакшені використовуються змінні середовища або сховище secrets. Консоль друкує лише «присутній, довжина N».
+
+### JSON
+
+`JsonCatalogFile` — єдине місце формату: camelCase, `WriteIndented`, `UnsafeRelaxedJsonEscaping` (кирилиця без `\uXXXX`), атомарний запис `.tmp` + `File.Move(overwrite: true)`. Зіпсований файл дає `StorageException` з назвою файлу. Демо-вхідні файли з `data/` копіюються в `<вихід>/data` через `Cli.csproj`.

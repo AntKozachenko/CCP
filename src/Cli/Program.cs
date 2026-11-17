@@ -1,12 +1,20 @@
 using Cli;
 using Core;
+using Core.Configuration;
 using Core.Abstractions;
 using Core.Domain;
 using Core.Reports;
 using Core.Services;
 
 // ===== Composition root: єдине місце з конкретними класами =====
-IOrderStore store = StoreFactory.Create(args);   // --file, --cache
+var settings = AppSettings.Load(args);          // appsettings → env → user-secrets → CLI
+var log = new Log(settings.Options.Logging.MinimumLevel);
+log.Debug($"Середовище: {settings.Options.EnvironmentName}, рівень журналу: {settings.Options.Logging.MinimumLevel}");
+log.Debug($"Каталог даних: {settings.DataDir}");
+ReportPrinter.Currency = settings.Options.Orders.Currency;
+log.Debug($"Валюта: {settings.Options.Orders.Currency}");
+
+IOrderStore store = StoreFactory.Create(args, settings);   // --file, --cache
 var service = new OrderService(store);
 
 // Джерела звітів. --empty: порожнє джерело (самоперевірка 3), --shuffle: інший порядок у джерелі (самоперевірка 2).
@@ -17,6 +25,8 @@ IReadOnlyList<Product> catalog = empty ? [] : service.All();
 // Прапорці (--file, --cache, --empty ...) не є назвою звіту: беремо перший аргумент без "--".
 var command = args.FirstOrDefault(a => !a.StartsWith("--")) ?? "report-top"; //DoD5
 
+try
+{
 switch (command)
 {
     case "report-top":
@@ -66,22 +76,48 @@ switch (command)
 
     // ----- лабораторна 6 -----
     case "events":
-        EventsDemo.Run(store, service);
+        EventsDemo.Run(store, service, settings);
         break;
 
     // ----- лабораторна 8 -----
     case "import":            // async-імпорт товарів: [шлях] --stream --timeout=мс --slow=мс --progress
-        Environment.ExitCode = await ImportCommand.ProductsAsync(args, service);
+        Environment.ExitCode = await ImportCommand.ProductsAsync(args, service, settings);
         break;
 
     case "import-orders":     // async-імпорт замовлень з рядками: [шлях]
-        Environment.ExitCode = await ImportCommand.OrdersAsync(args);
+        Environment.ExitCode = await ImportCommand.OrdersAsync(args, settings);
+        break;
+
+    // ----- лабораторна 9 -----
+    case "config":            // показує шляхи й наявність секрету (значення не друкується)
+        Console.WriteLine($"Середовище : {settings.Options.EnvironmentName}");
+        Console.WriteLine($"Файл даних : {settings.DataFile}");
+        Console.WriteLine($"Каталог логів: {settings.LogDir}");
+        Console.WriteLine($"Валюта     : {settings.Options.Orders.Currency}");
+        Console.WriteLine(settings.ApiKeyStatus());
+        break;
+
+    case "export":            // уся колекція → JSON (атомарно): [шлях]
+        Environment.ExitCode = ExportCommand.Run(args, service, settings);
+        Console.WriteLine(settings.ApiKeyStatus());
         break;
 
     default:
         Console.WriteLine("report-top | report-big | report-groups | report-sum");
         Console.WriteLine("report-products | report-unsold | report-orders | report-groups-q | report-defer | report-bench");
-        Console.WriteLine("events | import | import-orders");
+        Console.WriteLine("events | import | import-orders | export | config");
         Console.WriteLine("прапорці: --file --cache --empty --shuffle; import: --stream --timeout=мс --slow=мс --progress");
         break;
+}
+}
+// Зіпсований файл даних чи некоректні дані: зрозуміле повідомлення, а не stack trace.
+catch (StorageException ex)
+{
+    Console.Error.WriteLine($"Помилка сховища: {ex.Message}");
+    Environment.ExitCode = 1;
+}
+catch (DomainException ex)
+{
+    Console.Error.WriteLine($"Дані відхилено: {ex.Message}");
+    Environment.ExitCode = 1;
 }

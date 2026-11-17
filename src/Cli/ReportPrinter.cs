@@ -6,6 +6,9 @@ namespace Cli;
 // {x,-8} вирівнює вліво, {x,12:N2} вправо з розділювачами тисяч і двома знаками після коми.
 public static class ReportPrinter
 {
+    // Orders:Currency з конфігурації; виставляється в Program.cs
+    public static string Currency { get; set; } = "UAH";
+
     public static void Print(string title, IReadOnlyList<OrderSummary> rows)
     {
         Header(title, rows.Count);
@@ -37,7 +40,7 @@ public static class ReportPrinter
     public static void Print(string title, (int Orders, decimal Total, decimal Average, decimal Max) t)
     {
         Console.WriteLine(title);
-        Console.WriteLine($" замовлень {t.Orders}, всього {t.Total:N2}, середній чек {t.Average:N2}, макс {t.Max:N2}");
+        Console.WriteLine($" замовлень {t.Orders}, всього {t.Total:N2}, середній чек {t.Average:N2}, макс {t.Max:N2} ({Currency})");
     }
 
     public static void Print(DeferredDemoResult d)

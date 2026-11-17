@@ -1,16 +1,13 @@
-using System.Text.Json;
 using Core.Abstractions;
 using Core.Domain;
-using Core.Dto;
 
 namespace Core.Storage;
 
 // Той самий контракт, інша механіка: кеш у пам'яті, дозавантаження при першому
-// зверненні, запис на диск після кожної зміни. На диск ідуть ProductDto з тижня 3.
+// зверненні, запис на диск після кожної зміни. Лаб. 9: шлях надходить із конфігурації,
+// формат і атомарний запис (.tmp + File.Move) живуть у JsonCatalogFile.
 public sealed class FileOrderStore(string path) : IOrderStore
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
-
     private readonly Dictionary<string, Product> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path = Path.GetFullPath(path);
     private bool _loaded;
@@ -20,23 +17,14 @@ public sealed class FileOrderStore(string path) : IOrderStore
         if (_loaded) return;
         if (File.Exists(_path))
         {
-            var dtos = JsonSerializer.Deserialize<List<ProductDto>>(File.ReadAllText(_path)) ?? [];
-            // FromDto іде через Product.Create, тож зіпсований файл відхилиться інваріантами
-            foreach (var dto in dtos)
-            {
-                var product = Product.FromDto(dto);
+            _cache.Clear();
+            foreach (var product in JsonCatalogFile.Read(_path))
                 _cache[product.Id] = product;
-            }
         }
         _loaded = true;
     }
 
-    private void Flush()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllText(_path,
-            JsonSerializer.Serialize(_cache.Values.Select(p => p.ToDto()).ToList(), Options));
-    }
+    private void Flush() => JsonCatalogFile.Write(_path, _cache.Values);
 
     public IReadOnlyList<Product> List()
     {

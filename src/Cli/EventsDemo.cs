@@ -12,13 +12,13 @@ namespace Cli;
 // роутером підкоманд, тому демо запускається командою: dotnet run --project src/Cli -- events
 public static class EventsDemo
 {
-    public static void Run(IOrderStore store, OrderService service)
+    public static void Run(IOrderStore store, OrderService service, AppSettings settings)
     {
         Console.WriteLine($"Сховище: {store.GetType().Name}");
         Console.WriteLine($"Товарів на старті: {service.All().Count}");
 
         // ===== Лаб. 6: підписка =====
-        string logPath = RepoPaths.Combine("logs", "app.log");
+        string logPath = Path.Combine(settings.LogDir, "app.log");
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
         File.Delete(logPath);   // демо: кожен запуск починає з чистого журналу
 
@@ -90,7 +90,7 @@ public static class EventsDemo
 
         // ===== Додаткове 1: INotificationSink замість події (інший сервіс, щоб не дублювати вивід) =====
         Console.WriteLine("\n--- Додаткове 1: приймачі через конструктор ---");
-        string sinkLogPath = RepoPaths.Combine("logs", "sinks.log");
+        string sinkLogPath = Path.Combine(settings.LogDir, "sinks.log");
         File.Delete(sinkLogPath);
         var sinkService = new OrderService(
             new InMemoryOrderStore(),
@@ -104,7 +104,7 @@ public static class EventsDemo
         Console.WriteLine("\n--- Додаткове 2: Action<string> в імпорті ---");
         int skipped = 0;
         var import = ProductCsvImporter.Load(
-            RepoPaths.Combine("data", "sample.csv"),
+            Path.Combine(settings.SamplesDir, "sample.csv"),
             msg =>   // викликається імпортером на кожен пропущений рядок
             {
                 skipped++;
@@ -121,7 +121,7 @@ public static class EventsDemo
         }
 
         // ===== Що потрапило у файл журналу (мають бути рівно 2 рядки, без операцій після відписки) =====
-        Console.WriteLine("\n--- logs/app.log ---");
+        Console.WriteLine($"\n--- {logPath} ---");
         foreach (string line in File.ReadAllLines(logPath))
             Console.WriteLine($" {line}");
 

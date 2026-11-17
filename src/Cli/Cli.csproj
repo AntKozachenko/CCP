@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Core\Core.csproj" />
@@ -10,6 +10,35 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <Nullable>enable</Nullable>
+    <!-- Ідентифікатор (не сам ключ!) каталогу user-secrets. Те саме, що робить: dotnet user-secrets init -->
+    <UserSecretsId>5b0c1c3e-7a64-4c1f-9f55-2d3e8a9b7c41</UserSecretsId>
   </PropertyGroup>
+
+  <!-- Конфігурація лише в Cli: Core про JSON-файли й user-secrets не знає -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="10.*" />
+  </ItemGroup>
+
+  <!-- Без цього FileNotFoundException для appsettings.json після збирання чи публікації -->
+  <ItemGroup>
+    <None Update="appsettings*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Демонстраційні вхідні файли з data/ репозиторію лягають у <вихід>/data, тож шлях не залежить від кореня репозиторію -->
+  <ItemGroup>
+    <Content Include="..\..\data\products.json;..\..\data\orders.json;..\..\data\sample.json;..\..\data\sample.csv;..\..\data\mixed.csv"
+             Link="data\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
 
 </Project>
